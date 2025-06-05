@@ -1,1 +1,198 @@
-<!DOCTYPE html><html><head><title>ETS Project Ducting</title></head><body><h1>Placeholder</h1></body></html>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ETS Project Ducting Calculator</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+      max-width: 800px;
+      margin: auto;
+    }
+    h2 {
+      margin-bottom: 10px;
+    }
+    .section {
+      margin-bottom: 30px;
+    }
+    label {
+      display: block;
+      margin-top: 10px;
+    }
+    input, button {
+      width: 100%;
+      padding: 10px;
+      margin-top: 5px;
+    }
+    .row-data, .results {
+      background: #f2f2f2;
+      padding: 15px;
+      margin-top: 15px;
+      border-radius: 5px;
+    }
+    .row-item {
+      padding: 10px;
+      background: #fff;
+      border: 1px solid #ccc;
+      margin-bottom: 10px;
+    }
+  </style>
+</head>
+<body>
+  <h2>ETS Project Ducting Calculator</h2>
+
+  <div class="section">
+    <h3>Initial Project Setup</h3>
+    <label>TX Name</label>
+    <input id="tx" placeholder="e.g. TX1" />
+
+    <label>Distance from TX to Row 1 (m)</label>
+    <input id="txToRow1" type="number" placeholder="e.g. 165" />
+
+    <label>Number of Rows</label>
+    <input id="numRows" type="number" placeholder="e.g. 10" />
+
+    <label>Row Spacing (m)</label>
+    <input id="rowSpacing" type="number" placeholder="e.g. 8" />
+
+    <button onclick="startRowEntry()">Start Row Input</button>
+  </div>
+
+  <div id="rowInputSection" class="section" style="display:none;">
+    <h3>Row Details</h3>
+    <div id="rowPrompt"></div>
+    <label>Inverters on this row (comma separated)</label>
+    <input id="inverters" placeholder="e.g. 1.1.1,1.1.2" />
+
+    <label>AC Combiner Boxes on this row (comma separated)</label>
+    <input id="acBoxes" placeholder="e.g. 1.1" />
+
+    <button onclick="addRowData()">Add Row</button>
+  </div>
+
+  <div id="rowDataOutput" class="row-data"></div>
+
+  <div class="section">
+    <button onclick="calculateDucts()">Calculate Ducting</button>
+  </div>
+
+  <div id="results" class="results"></div>
+
+  <script>
+    let currentRow = 1;
+    let totalRows = 0;
+    const rowData = [];
+
+    function startRowEntry() {
+      currentRow = 1;
+      totalRows = parseInt(document.getElementById('numRows').value);
+      rowData.length = 0;
+      document.getElementById('rowDataOutput').innerHTML = '';
+      document.getElementById('rowInputSection').style.display = 'block';
+      updateRowPrompt();
+    }
+
+    function updateRowPrompt() {
+      document.getElementById('rowPrompt').innerText = `Enter details for Row ${currentRow}`;
+    }
+
+    function addRowData() {
+      const inv = document.getElementById('inverters').value;
+      const ac = document.getElementById('acBoxes').value;
+      rowData.push({ row: currentRow, inverters: inv.split(',').map(e => e.trim()).filter(Boolean), acBoxes: ac.split(',').map(e => e.trim()).filter(Boolean) });
+
+      const div = document.createElement('div');
+      div.className = 'row-item';
+      div.innerText = `Row ${currentRow} - Inverters: [${inv}] | AC Boxes: [${ac}]`;
+      document.getElementById('rowDataOutput').appendChild(div);
+
+      document.getElementById('inverters').value = '';
+      document.getElementById('acBoxes').value = '';
+
+      if (currentRow < totalRows) {
+        currentRow++;
+        updateRowPrompt();
+      } else {
+        document.getElementById('rowInputSection').style.display = 'none';
+      }
+    }
+
+    function calculateDucts() {
+      const txDist = parseFloat(document.getElementById('txToRow1').value);
+      const spacing = parseFloat(document.getElementById('rowSpacing').value);
+
+      let commsLength = 0;
+      let acMainLength = 0;
+      let inverterLength = 0;
+      let stringLength = 0;
+
+      let maxRow = rowData.length;
+      const trenchDetails = [];
+      let totalSandVol = 0;
+      let totalSandMass = 0;
+
+      let lastInverterRow = 0;
+      for (let i = maxRow - 1; i >= 0; i--) {
+        if (rowData[i].inverters.length > 0) {
+          lastInverterRow = i + 1;
+          break;
+        }
+      }
+      if (lastInverterRow > 0) {
+        commsLength = txDist + (lastInverterRow - 1) * spacing + 6;
+      }
+
+      for (let i = 0; i < maxRow; i++) {
+        const row = rowData[i];
+        const segmentLength = i === 0 ? txDist : spacing;
+
+        const ducts_110 = row.acBoxes.length + ((i < maxRow - 1 && row.inverters.length > 0 && rowData[i + 1].inverters.length > 0) ? 1 : 0);
+        const ducts_50 = row.inverters.length;
+
+        const totalDucts = ducts_110 + ducts_50;
+        const widthRaw = (ducts_110 * 110) + (ducts_50 * 50) + (totalDucts + 1) * 50;
+        const standardWidths = [150, 300, 450, 600, 800, 1000, 1200];
+        const roundedWidth = standardWidths.find(w => w >= widthRaw) || 'Contact PM';
+        const trenchHeight = (ducts_110 > 0 ? 110 : 0) + (ducts_50 > 0 ? 50 : 0) + 100;
+
+        const trenchVol = typeof roundedWidth === 'number' ? (roundedWidth / 1000) * (trenchHeight / 1000) * segmentLength : 0;
+        const ductVol = ducts_110 * Math.PI * Math.pow(110 / 2000, 2) * segmentLength + ducts_50 * Math.PI * Math.pow(50 / 2000, 2) * segmentLength;
+        const sandVol = trenchVol - ductVol;
+        const sandMass = sandVol * 1.6;
+
+        totalSandVol += sandVol;
+        totalSandMass += sandMass;
+
+        trenchDetails.push(`Row ${i + 1}: ${segmentLength}m → ${roundedWidth}mm trench → ${sandVol.toFixed(2)}m³ sand (${sandMass.toFixed(1)} t)`);
+
+        if (row.acBoxes.length > 0) {
+          acMainLength += (segmentLength + 6) * row.acBoxes.length;
+        }
+
+        inverterLength += row.inverters.length * 6;
+
+        if (i < maxRow - 1 && row.inverters.length > 0 && rowData[i + 1].inverters.length > 0) {
+          stringLength += spacing + 6;
+        }
+      }
+
+      const results = `
+        <h3>Results</h3>
+        <div><strong>Comms Duct (50mm):</strong> ${Math.ceil(commsLength / 50)}x 50m reels (${Math.ceil(commsLength)}m total)</div>
+        <div><strong>Main AC Transfer Ducts (110mm):</strong> ${Math.ceil(acMainLength / 50)}x 50m reels (${Math.ceil(acMainLength)}m total)</div>
+        <div><strong>AC Inverter Feed Ducts (50mm):</strong> ${Math.ceil(inverterLength / 50)}x 50m reels (${Math.ceil(inverterLength)}m total)</div>
+        <div><strong>String Ducts (110mm):</strong> ${Math.ceil(stringLength / 50)}x 50m reels (${Math.ceil(stringLength)}m total)</div>
+        <hr />
+        <div><strong>Total Sand Volume:</strong> ${totalSandVol.toFixed(2)} m³</div>
+        <div><strong>Total Sand Mass:</strong> ${totalSandMass.toFixed(1)} tonnes</div>
+        <hr />
+        <div><strong>Trench Breakdown:</strong><br>${trenchDetails.join('<br>')}</div>
+      `;
+
+      document.getElementById('results').innerHTML = results;
+    }
+  </script>
+</body>
+</html>
